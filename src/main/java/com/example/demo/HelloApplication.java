@@ -5,13 +5,15 @@ import com.tulskiy.keymaster.common.HotKeyListener;
 import com.tulskiy.keymaster.common.Provider;
 import javafx.application.Application;
 import javafx.application.Platform;
+import javafx.collections.FXCollections;
+import javafx.fxml.FXMLLoader;
+import javafx.scene.Cursor;
 import javafx.scene.Group;
-import javafx.scene.paint.Color;
 import javafx.scene.Scene;
+import javafx.scene.control.ListView;
 import javafx.scene.input.ClipboardContent;
-import javafx.scene.layout.Pane;
-import javafx.scene.text.Font;
-import javafx.scene.text.Text;
+import javafx.scene.paint.Color;
+import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 
@@ -21,6 +23,7 @@ import java.awt.*;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.UnsupportedFlavorException;
+import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.io.File;
 import java.io.IOException;
@@ -31,7 +34,7 @@ public class HelloApplication extends Application {
     private final int MAX_CACHE_SIZE = 10;
     private final LinkedList<String> queue = new LinkedList<>();
     private javafx.scene.input.Clipboard clipboard;
-
+    private Stage primaryStage;
 
     public static void main(String[] args) {
         launch();
@@ -39,6 +42,8 @@ public class HelloApplication extends Application {
 
     @Override
     public void start(Stage primaryStage) throws IOException {
+        this.primaryStage = primaryStage;
+
         Group root = new Group();
         Scene scene = new Scene(root, Color.TRANSPARENT);
         primaryStage.setScene(scene);
@@ -94,7 +99,7 @@ public class HelloApplication extends Application {
                         previousContent = content;
                     }
                     // 每1s扫码一次
-                    Thread.sleep(1000);
+                    Thread.sleep(100);
                 } catch (UnsupportedFlavorException | InterruptedException | IOException e) {
                     throw new RuntimeException(e);
                 }
@@ -103,67 +108,68 @@ public class HelloApplication extends Application {
     }
 
     private void registerShortcut() {
-//        new Thread(() -> {
-//            try {
-//                GlobalScreen.registerNativeHook();
-//            } catch (NativeHookException e) {
-//                throw new RuntimeException(e);
+        Provider provider = Provider.getCurrentProvider(false);
+//        provider.register(KeyStroke.getKeyStroke("ctrl shift V"), new HotKeyListener() {
+//            @Override
+//            public void onHotKey(HotKey hotKey) {
+//                System.out.println(hotKey.toString());
 //            }
-//            GlobalScreen.addNativeKeyListener(new AppGlobalKeyListener());
-//
-//        }).start();
-        new Thread(() -> {
-            Provider provider = Provider.getCurrentProvider(false);
-//            provider.register(KeyStroke.getKeyStroke("ctrl shift V"), new HotKeyListener() {
-//                @Override
-//                public void onHotKey(HotKey hotKey) {
-//                    System.out.println(hotKey.toString());
-//                }
-//            });
-            provider.register(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_V, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() + java.awt.event.InputEvent.SHIFT_MASK), new HotKeyListener() {
-                @Override
-                public void onHotKey(HotKey hotKey) {
-                    showPopup();
-                }
-            });
-        }).start();
+//        });
+
+        provider.unregister(KeyStroke.getKeyStroke(KeyEvent.VK_V, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() + InputEvent.SHIFT_DOWN_MASK));
+        provider.register(KeyStroke.getKeyStroke(KeyEvent.VK_V, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() + InputEvent.SHIFT_DOWN_MASK), new HotKeyListener() {
+            @Override
+            public void onHotKey(HotKey hotKey) {
+                System.out.println(hotKey.toString());
+                showPopup();
+            }
+        });
     }
 
     /**
      * 显示缓存列表
      */
     private void showPopup() {
-        Pane popupPane = new Pane();
-        for (int i = 0; i < queue.size(); i++) {
-            String cache = queue.get(i);
-            Text text = new Text(cache);
-            text.setWrappingWidth(300);
-            text.setFont(Font.font(14));
-            text.setLayoutX(10);
-            text.setLayoutY((i + 1) * 30);
+        ListView<String> listView = new ListView<>();
+        listView.setCursor(Cursor.NONE);
+        listView.setMouseTransparent(true);
+        listView.setPrefSize(200, 200);
+        listView.setItems(FXCollections.observableList(queue));
 
-            // 添加点击事件
-            text.setOnMouseClicked(event -> {
-//                if (cache instanceof String) {
-                clipboard.setContent(new ClipboardContent());
-//                } else if (cache instanceof javafx.scene.image.Image) {
-//                    clipboard.setContent(new ClipboardContent());
-//                }
-//                Point2D mousePoint = root.sceneToLocal(event.getScreenX(), event.getScreenY());
-//                moveCursor(mousePoint, 50);
+        listView.setOnMouseClicked(event -> {
+            String selected = listView.getSelectionModel().getSelectedItem();
+            // 处理列表项被点击后的逻辑，比如打印选中的项
+            System.out.println("选择了：" + selected);
+            if (selected != null) {
+                ClipboardContent content = new ClipboardContent();
+                content.putString(selected);
+                clipboard.setContent(content);
                 firePaste();
-            });
-            popupPane.getChildren().add(text);
-        }
-        Platform.runLater(() -> {
-            Scene popupScene = new Scene(popupPane, 320, queue.size() * 30 + 20);
-            Stage popupStage = new Stage();
-            popupStage.setScene(popupScene);
+            }
+        });
 
-            Point location = MouseInfo.getPointerInfo().getLocation();
-            popupStage.setX(location.x);
-            popupStage.setY(location.y);
-            popupStage.showAndWait();
+        Platform.runLater(() -> {
+            Scene scene = new Scene(listView, 320, queue.size() * 30 + 20);
+            Stage stage = new Stage();
+            stage.initOwner(primaryStage);
+            stage.setScene(scene);
+            stage.setAlwaysOnTop(true);
+            stage.initStyle(StageStyle.UNDECORATED);
+            stage.initModality(Modality.APPLICATION_MODAL);
+            stage.setResizable(false);
+
+            // 监听弹出窗口所在场景的聚焦状态
+//                stage.getScene().getWindow().focusedProperty().addListener((observable, oldValue, newValue) -> {
+//                    // 如果失去聚焦，则隐藏弹出窗口
+//                    if (!newValue) {
+//                        stage.hide();
+//                    }
+//                });
+
+//                Point location = MouseInfo.getPointerInfo().getLocation();
+//                stage.setX(location.x);
+//                stage.setY(location.y);
+            stage.showAndWait();
         });
     }
 
@@ -178,7 +184,7 @@ public class HelloApplication extends Application {
             robot.keyRelease(KeyEvent.VK_V);
             robot.keyRelease(KeyEvent.VK_CONTROL);
         } catch (AWTException e) {
-            throw new RuntimeException(e);
+            e.printStackTrace();
         }
     }
 }
